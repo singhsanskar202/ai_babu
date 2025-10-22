@@ -8,7 +8,7 @@ import os, tempfile
 # ------------------------------
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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",
+    api_key=OPENROUTER_API_KEY,
 )
 
 def get_engine():
