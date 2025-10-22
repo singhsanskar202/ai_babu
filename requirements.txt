@@ -3,4 +3,6 @@ openai
 pyttsx3
 SpeechRecognition
 python-dotenv
-pyaudio
+sounddevice
+soundfile
+
