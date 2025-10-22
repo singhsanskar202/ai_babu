@@ -40,7 +40,7 @@ Always end with a next step or reflection question.
 
 def consultant_reply(history):
     response = client.chat.completions.create(
-        model="deepseek/deepseek-chat-v3.1:free",
+        model="openai/gpt-oss-20b:free",
         messages=history,
         temperature=0.6,
         max_tokens=220,
