@@ -1,39 +1,26 @@
 import streamlit as st
-import speech_recognition as sr
 import pyttsx3
 from openai import OpenAI
-import os, time
-import sounddevice as sd
-import numpy as np
-import soundfile as sf
-
+import os, tempfile
 
 # ------------------------------
 # SETUP
 # ------------------------------
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY ,
+    api_key="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",
 )
 
-recognizer = sr.Recognizer()
-
 def get_engine():
-    """Initialize and reuse a single pyttsx3 engine safely."""
+    """Initialize and reuse pyttsx3 safely"""
     if "engine" not in st.session_state:
         st.session_state["engine"] = pyttsx3.init()
         st.session_state["engine"].setProperty("rate", 165)
         st.session_state["engine"].setProperty("volume", 0.9)
-        # pick a deeper / male voice if available
-        voices = st.session_state["engine"].getProperty("voices")
-        for v in voices:
-            if "male" in v.name.lower() or "david" in v.name.lower():
-                st.session_state["engine"].setProperty("voice", v.id)
-                break
     return st.session_state["engine"]
 
 def speak(text):
-    """Speak the consultant's reply safely (prevents loop errors)."""
+    """Speak output safely."""
     engine = get_engine()
     try:
         engine.say(text)
@@ -43,44 +30,17 @@ def speak(text):
         engine.say(text)
         engine.runAndWait()
 
-# ------------------------------
-# CONSULTANT PERSONA
-# ------------------------------
 CONSULTANT_PROMPT = """
 You are a senior McKinsey-style management consultant speaking with a CEO client.
-You communicate like a real human consultant — structured, calm, and authoritative, yet empathetic.
-
-Guidelines:
-- Confirm understanding and ask one clarifying question first.
-- Then share 2–3 concise insights or recommendations.
-- Use frameworks (MECE, 3Cs, 7S, Porter's Five Forces, growth levers) only when relevant.
-- Never lecture or write essays. Speak in short paragraphs, like in a real conversation.
-- End each response with a question or next step.
-
-Tone:
-Professional, thoughtful, collaborative — like a trusted strategy partner.
+Speak in short, structured sentences. 
+Ask clarifying questions before giving advice.
+Use frameworks (MECE, 3Cs, 7S, Porter's Five Forces) when relevant.
+Always end with a next step or reflection question.
 """
 
-# ------------------------------
-# HELPER FUNCTIONS
-# ------------------------------
-def listen_once():
-    """Capture user speech and transcribe."""
-    with sr.Microphone() as source:
-        st.info("🎙 Listening... Speak naturally, as if in a business meeting.")
-        audio = recognizer.listen(source, phrase_time_limit=8)
-    try:
-        text = recognizer.recognize_google(audio)
-        st.success(f"👤 You said: {text}")
-        return text
-    except sr.UnknownValueError:
-        st.warning("Sorry, I couldn’t understand that.")
-        return None
-
 def consultant_reply(history):
-    """Generate a concise, realistic consultant response."""
     response = client.chat.completions.create(
-        model="meta-llama/llama-4-maverick:free",
+        model="openai/gpt-4o-mini",
         messages=history,
         temperature=0.6,
         max_tokens=220,
@@ -89,65 +49,52 @@ def consultant_reply(history):
             "X-Title": "McKinsey Consultant App",
         },
     )
-    text = response.choices[0].message.content.strip()
-
-    # Trim overly long answers (first ~5 sentences)
-    parts = text.split(". ")
-    trimmed = ". ".join(parts[:5]).strip()
-    if not trimmed.endswith("."):
-        trimmed += "."
-    return trimmed
+    return response.choices[0].message.content.strip()
 
 # ------------------------------
 # STREAMLIT UI
 # ------------------------------
-st.set_page_config(page_title="McKinsey AI Consultant (GPT-4o)", page_icon="💼", layout="centered")
+st.set_page_config(page_title="McKinsey AI Consultant", page_icon="💼", layout="centered")
 st.title("💼 McKinsey-Style Strategy Consultant")
-st.markdown("_A realistic, interactive voice-based consulting experience._")
+st.markdown("_Browser-based voice conversation demo (no PortAudio needed)._")
 
 if "chat" not in st.session_state:
     st.session_state["chat"] = [{"role": "system", "content": CONSULTANT_PROMPT}]
 
-col1, col2 = st.columns(2)
-with col1:
-    start_button = st.button("🎤 Start Conversation")
-with col2:
-    stop_button = st.button("🛑 End Session")
+# --- Record user voice in browser ---
+audio_input = st.audio_input("🎙 Speak your business question")
 
+if audio_input:
+    # Save the uploaded audio temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio_input.read())
+        temp_audio_path = temp_audio.name
+
+    st.success("🎧 Got your question. Processing...")
+
+    # If you want to transcribe speech to text using OpenAI Whisper or another API:
+    try:
+        transcription = client.audio.transcriptions.create(
+            model="openai/whisper-1",
+            file=open(temp_audio_path, "rb"),
+        )
+        user_text = transcription.text.strip()
+        st.markdown(f"**👤 You:** {user_text}")
+    except Exception:
+        user_text = "Transcription failed."
+        st.warning(user_text)
+
+    # Get consultant reply
+    st.session_state["chat"].append({"role": "user", "content": user_text})
+    with st.spinner("Consultant thinking..."):
+        reply = consultant_reply(st.session_state["chat"])
+
+    st.session_state["chat"].append({"role": "assistant", "content": reply})
+    st.markdown(f"**💼 Consultant:** {reply}")
+    speak(reply)
+
+# --- Chat history display ---
 st.divider()
-
-# ------------------------------
-# CONVERSATION LOOP
-# ------------------------------
-if start_button:
-    st.write("🧠 Consultant ready. Speak freely — say 'stop' or 'thank you' to end.")
-    running = True
-    while running:
-        user_input = listen_once()
-        if not user_input:
-            continue
-
-        if user_input.lower() in ["stop", "thank you", "bye", "exit", "goodbye"]:
-            speak("It was great speaking with you. Let's reconnect once you have the next round of data.")
-            st.write("💬 Conversation ended.")
-            break
-
-        # Add user input to conversation
-        st.session_state["chat"].append({"role": "user", "content": user_input})
-
-        # Generate consultant's reply
-        with st.spinner("Consultant analyzing your case..."):
-            reply = consultant_reply(st.session_state["chat"])
-
-        # Add reply and show it
-        st.session_state["chat"].append({"role": "assistant", "content": reply})
-        st.markdown(f"**💼 Consultant:** {reply}")
-        speak(reply)
-        time.sleep(1.5)  # small pause before listening again
-
-# ------------------------------
-# DISPLAY CHAT HISTORY
-# ------------------------------
 for m in st.session_state["chat"]:
     if m["role"] == "user":
         st.markdown(f"**👤 You:** {m['content']}")
