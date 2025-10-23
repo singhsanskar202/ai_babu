@@ -1,4 +1,5 @@
 import streamlit as st
+import speech_recognition as sr
 from openai import OpenAI
 import os
 import tempfile
@@ -12,19 +13,36 @@ client = OpenAI(
 )
 
 CONSULTANT_PROMPT = """
-You are a senior McKinsey-style management consultant talking to a CEO.
-Be structured, calm, and clear.
-Ask clarifying questions first.
-Use frameworks like MECE, 3Cs, Porter's Five Forces, and 7S when relevant.
-Always end with 2-3 actionable recommendations or next steps.
+You are a seasoned McKinsey-style management consultant speaking to a CEO.
+Speak clearly and confidently.
+Ask clarifying questions before giving recommendations.
+Use frameworks like MECE, 3Cs, Porter's Five Forces, or 7S when relevant.
+Conclude with 2–3 actionable next steps or strategic options.
 """
 
 # ------------------------------
-# HELPER FUNCTIONS
+# TRANSCRIPTION HELPER
+# ------------------------------
+def transcribe_audio(temp_audio_path):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(temp_audio_path) as source:
+        audio = recognizer.record(source)
+    try:
+        text = recognizer.recognize_google(audio)
+        return text
+    except sr.UnknownValueError:
+        st.warning("Speech not understood.")
+        return ""
+    except Exception as e:
+        st.warning(f"Transcription failed: {e}")
+        return ""
+
+# ------------------------------
+# CONSULTANT REPLY
 # ------------------------------
 def consultant_reply(history):
     response = client.chat.completions.create(
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-oss-20b:free",
         messages=history,
         temperature=0.6,
         max_tokens=220,
@@ -35,12 +53,13 @@ def consultant_reply(history):
     )
     return response.choices[0].message.content.strip()
 
-
+# ------------------------------
+# TEXT TO SPEECH (browser-safe)
+# ------------------------------
 def speak_text(text):
-    """Generate and play back AI voice using OpenAI TTS (browser-compatible)."""
     try:
         speech = client.audio.speech.create(
-            model="openai/gpt-oss-20b:free",
+            model="gpt-4o-mini-tts",
             voice="alloy",
             input=text
         )
@@ -49,17 +68,17 @@ def speak_text(text):
     except Exception as e:
         st.warning(f"TTS error: {e}")
 
-
 # ------------------------------
 # STREAMLIT UI
 # ------------------------------
 st.set_page_config(page_title="McKinsey AI Consultant", page_icon="💼", layout="centered")
 st.title("💼 McKinsey-Style Strategy Consultant")
-st.markdown("_Voice-based business advisor — works in Streamlit Cloud._")
+st.markdown("_Ask your AI business advisor about growth, operations, or strategy._")
 
 if "chat" not in st.session_state:
     st.session_state["chat"] = [{"role": "system", "content": CONSULTANT_PROMPT}]
 
+# --- Record user voice in browser ---
 audio_input = st.audio_input("🎙 Speak your business question")
 
 if audio_input:
@@ -67,16 +86,10 @@ if audio_input:
         temp_audio.write(audio_input.read())
         temp_audio_path = temp_audio.name
 
-    # Transcribe user question
-    try:
-        transcription = client.audio.transcriptions.create(
-            model="openai/whisper-1",
-            file=open(temp_audio_path, "rb"),
-        )
-        user_text = transcription.text.strip()
-    except Exception:
-        user_text = "Transcription failed."
-
+    # Transcribe audio using Google SpeechRecognition
+    user_text = transcribe_audio(temp_audio_path)
+    if not user_text:
+        user_text = "Could not understand your question."
     st.markdown(f"**👤 You:** {user_text}")
 
     # Get consultant reply
@@ -95,4 +108,5 @@ for m in st.session_state["chat"]:
         st.markdown(f"**👤 You:** {m['content']}")
     elif m["role"] == "assistant":
         st.markdown(f"**💼 Consultant:** {m['content']}")
+
 
