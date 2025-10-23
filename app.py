@@ -1,37 +1,46 @@
 import streamlit as st
 import speech_recognition as sr
 from openai import OpenAI
+from pydub import AudioSegment
 import os
 import tempfile
 
 # ------------------------------
 # SETUP
 # ------------------------------
+st.set_page_config(page_title="McKinsey AI Consultant", page_icon="💼", layout="centered")
+
+# Load OpenRouter client
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 
 CONSULTANT_PROMPT = """
-You are a seasoned McKinsey-style management consultant speaking to a CEO.
-Speak clearly and confidently.
+You are a McKinsey-style senior business consultant advising a CEO.
+Be clear, structured, and insightful.
+Use frameworks like MECE, 3Cs, Porter's Five Forces, and 7S when relevant.
 Ask clarifying questions before giving recommendations.
-Use frameworks like MECE, 3Cs, Porter's Five Forces, or 7S when relevant.
-Conclude with 2–3 actionable next steps or strategic options.
+End with 2–3 actionable next steps.
 """
 
 # ------------------------------
-# TRANSCRIPTION HELPER
+# TRANSCRIPTION (FIXED VERSION)
 # ------------------------------
 def transcribe_audio(temp_audio_path):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(temp_audio_path) as source:
-        audio = recognizer.record(source)
+    """Convert WebM to WAV (16kHz PCM) and transcribe using Google Speech Recognition."""
     try:
+        wav_path = temp_audio_path.replace(".wav", "_converted.wav")
+        sound = AudioSegment.from_file(temp_audio_path)
+        sound = sound.set_frame_rate(16000).set_channels(1)
+        sound.export(wav_path, format="wav")
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio = recognizer.record(source)
         text = recognizer.recognize_google(audio)
         return text
     except sr.UnknownValueError:
-        st.warning("Speech not understood.")
         return ""
     except Exception as e:
         st.warning(f"Transcription failed: {e}")
@@ -41,20 +50,24 @@ def transcribe_audio(temp_audio_path):
 # CONSULTANT REPLY
 # ------------------------------
 def consultant_reply(history):
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-20b:free",
-        messages=history,
-        temperature=0.6,
-        max_tokens=220,
-        extra_headers={
-            "HTTP-Referer": "https://share.streamlit.io",
-            "X-Title": "McKinsey Consultant App",
-        },
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-20b:free",
+            messages=history,
+            temperature=0.6,
+            max_tokens=300,
+            extra_headers={
+                "HTTP-Referer": "https://share.streamlit.io",
+                "X-Title": "McKinsey Consultant App",
+            },
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"Model error: {e}")
+        return "I'm sorry, but I encountered an issue generating a response."
 
 # ------------------------------
-# TEXT TO SPEECH (browser-safe)
+# TEXT-TO-SPEECH (browser audio)
 # ------------------------------
 def speak_text(text):
     try:
@@ -71,14 +84,12 @@ def speak_text(text):
 # ------------------------------
 # STREAMLIT UI
 # ------------------------------
-st.set_page_config(page_title="McKinsey AI Consultant", page_icon="💼", layout="centered")
-st.title("💼 McKinsey-Style Strategy Consultant")
-st.markdown("_Ask your AI business advisor about growth, operations, or strategy._")
+st.title("💼 McKinsey-Style AI Business Consultant")
+st.markdown("_Speak your question, and get a consultant-grade answer._")
 
 if "chat" not in st.session_state:
     st.session_state["chat"] = [{"role": "system", "content": CONSULTANT_PROMPT}]
 
-# --- Record user voice in browser ---
 audio_input = st.audio_input("🎙 Speak your business question")
 
 if audio_input:
@@ -86,15 +97,17 @@ if audio_input:
         temp_audio.write(audio_input.read())
         temp_audio_path = temp_audio.name
 
-    # Transcribe audio using Google SpeechRecognition
+    st.info("🎧 Processing your voice input...")
+
     user_text = transcribe_audio(temp_audio_path)
     if not user_text:
         user_text = "Could not understand your question."
+
     st.markdown(f"**👤 You:** {user_text}")
 
-    # Get consultant reply
+    # Consultant reply
     st.session_state["chat"].append({"role": "user", "content": user_text})
-    with st.spinner("Consultant thinking..."):
+    with st.spinner("💼 Consultant thinking..."):
         reply = consultant_reply(st.session_state["chat"])
 
     st.session_state["chat"].append({"role": "assistant", "content": reply})
@@ -108,5 +121,3 @@ for m in st.session_state["chat"]:
         st.markdown(f"**👤 You:** {m['content']}")
     elif m["role"] == "assistant":
         st.markdown(f"**💼 Consultant:** {m['content']}")
-
-
