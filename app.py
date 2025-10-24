@@ -40,10 +40,14 @@ def transcribe_audio(audio_file_data):
     recognizer = Recognizer()
 
     # 1. Load the audio data directly from the in-memory file-like object
-    #    Streamlit's audio_input widget typically provides audio in 'ogg' format.
     try:
         # REMOVED format="ogg" to let ffmpeg auto-detect the format
         sound = AudioSegment.from_file(audio_file_data)
+        
+        # *** NEW STEP: Boost audio volume ***
+        # Boost the audio by 10dB. This can help if the recording is too quiet.
+        sound = sound + 10
+
     except Exception as e:
         st.error(f"Error loading audio with pydub: {e}. Please try recording again.")
         return None
@@ -58,6 +62,13 @@ def transcribe_audio(audio_file_data):
 
         # 3. Transcribe the WAV file
         with AudioFile(wav_filename) as source:
+            # *** NEW STEP: Adjust for ambient noise ***
+            # Listen for 0.5 seconds to adjust for noise
+            try:
+                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            except Exception as e:
+                st.warning(f"Could not adjust for ambient noise: {e}")
+                
             audio_data = recognizer.record(source)
             text = recognizer.recognize_google(audio_data)
         return text
