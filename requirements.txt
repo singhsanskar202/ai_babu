@@ -6,8 +6,6 @@ python-dotenv
 sounddevice
 soundfile
 
-streamlit
-openai
 speechrecognition
 pydub
 python-dotenv
