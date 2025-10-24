@@ -42,7 +42,8 @@ def transcribe_audio(audio_file_data):
     # 1. Load the audio data directly from the in-memory file-like object
     #    Streamlit's audio_input widget typically provides audio in 'ogg' format.
     try:
-        sound = AudioSegment.from_file(audio_file_data, format="ogg")
+        # REMOVED format="ogg" to let ffmpeg auto-detect the format
+        sound = AudioSegment.from_file(audio_file_data)
     except Exception as e:
         st.error(f"Error loading audio with pydub: {e}. Please try recording again.")
         return None
@@ -150,3 +151,4 @@ if st.button("💬 Ask Consultant"):
         st.warning("Please record your voice question first.")
 
 st.caption("Powered by OpenRouter | Designed as a voice-interactive business consultant.")
+
