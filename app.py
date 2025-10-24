@@ -1,129 +1,73 @@
 import streamlit as st
-import speech_recognition as sr
 from openai import OpenAI
-from pydub import AudioSegment
 import tempfile
 import os
-import subprocess
-import streamlit.components.v1 as components
+from pydub import AudioSegment
+from speech_recognition import Recognizer, AudioFile
 
 # ------------------------------
 # SETUP
 # ------------------------------
-st.set_page_config(page_title="McKinsey AI Consultant", page_icon="💼", layout="centered")
+st.set_page_config(page_title="AI Consultant", page_icon="💼", layout="centered")
 
-# ✅ Ensure ffmpeg is available (for pydub audio conversion)
-try:
-    subprocess.run(["ffmpeg", "-version"], check=True, capture_output=True)
-except Exception:
-    st.warning("Installing ffmpeg (first-time setup)...")
-    subprocess.run(["apt-get", "update"], capture_output=True)
-    subprocess.run(["apt-get", "install", "-y", "ffmpeg"], capture_output=True)
-
-# ✅ Initialize OpenRouter client
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # Set in Streamlit secrets or .env
+client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
 
 CONSULTANT_PROMPT = """
-You are a McKinsey-style senior management consultant advising a CEO.
-Speak in short, structured, confident sentences.
-Ask clarifying questions first, then give 2–3 clear recommendations.
-Use frameworks like MECE, 3Cs, Porter's Five Forces, and 7S when relevant.
-Conclude with actionable next steps.
+You are a McKinsey-style senior business consultant advising a CEO.
+Be structured, analytical, and confident.
+Ask clarifying questions before giving actionable recommendations.
+Use frameworks like MECE, 3Cs, Porter's Five Forces, or 7S when relevant.
 """
 
 # ------------------------------
-# AUDIO → TEXT (STT)
+# PROCESSING
 # ------------------------------
-def transcribe_audio(temp_audio_path):
-    """Convert WebM → WAV (PCM) and transcribe with Google Speech Recognition."""
-    try:
-        wav_path = temp_audio_path.replace(".wav", "_converted.wav")
-        sound = AudioSegment.from_file(temp_audio_path)
-        sound = sound.set_frame_rate(16000).set_channels(1)
-        sound.export(wav_path, format="wav")
+def transcribe_audio(audio_bytes):
+    recognizer = Recognizer()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(audio_bytes)
+        tmp.flush()
+        sound = AudioSegment.from_file(tmp.name)
+        sound.export(tmp.name, format="wav")
 
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = recognizer.record(source)
-        text = recognizer.recognize_google(audio)
-        return text
-    except sr.UnknownValueError:
-        return ""
-    except Exception as e:
-        st.warning(f"Transcription failed: {e}")
-        return ""
+        with AudioFile(tmp.name) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data)
+    return text
 
-# ------------------------------
-# CONSULTANT RESPONSE (LLM)
-# ------------------------------
-def consultant_reply(history):
-    try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-20b:free",
-            messages=history,
-            temperature=0.6,
-            max_tokens=300,
-            extra_headers={
-                "HTTP-Referer": "https://share.streamlit.io",
-                "X-Title": "McKinsey Consultant App",
-            },
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        st.error(f"Model error: {e}")
-        return "I'm sorry, but I encountered an issue generating a response."
+
+def get_consultant_reply(user_text):
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-20b:free",
+        messages=[
+            {"role": "system", "content": CONSULTANT_PROMPT},
+            {"role": "user", "content": user_text},
+        ],
+        temperature=0.6,
+        max_tokens=300,
+    )
+    return response.choices[0].message.content.strip()
+
 
 # ------------------------------
 # STREAMLIT UI
 # ------------------------------
 st.title("💼 McKinsey-Style AI Business Consultant")
-st.markdown("_Ask your AI business advisor about growth, strategy, or operations._")
+st.markdown("Speak your question, and get a consultant-grade answer.")
 
-if "chat" not in st.session_state:
-    st.session_state["chat"] = [{"role": "system", "content": CONSULTANT_PROMPT}]
-
-# 🎙 Browser mic input
 audio_input = st.audio_input("🎙 Speak your business question")
 
-if audio_input:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-        temp_audio.write(audio_input.read())
-        temp_audio_path = temp_audio.name
+if st.button("Analyze 🎧"):
+    if audio_input is not None:
+        with st.spinner("Processing your audio..."):
+            try:
+                user_text = transcribe_audio(audio_input.read())
+                st.write(f"**👤 You said:** {user_text}")
+                reply = get_consultant_reply(user_text)
+                st.markdown(f"**💼 Consultant:** {reply}")
+            except Exception as e:
+                st.error(f"Error processing your input: {e}")
+    else:
+        st.warning("Please record your question first.")
 
-    st.info("🎧 Processing your voice input...")
-
-    # 🔊 Convert + Transcribe
-    user_text = transcribe_audio(temp_audio_path)
-    if not user_text:
-        user_text = "Could not understand your question."
-
-    st.markdown(f"**👤 You:** {user_text}")
-
-    # 💼 Generate consultant reply
-    st.session_state["chat"].append({"role": "user", "content": user_text})
-    with st.spinner("💼 Consultant thinking..."):
-        reply = consultant_reply(st.session_state["chat"])
-
-    st.session_state["chat"].append({"role": "assistant", "content": reply})
-    st.markdown(f"**💼 Consultant:** {reply}")
-
-    # 🗣 Browser speech synthesis (no API, works everywhere)
-    components.html(f"""
-    <script>
-    var msg = new SpeechSynthesisUtterance("{reply.replace('"', '').replace('\n',' ')}");
-    msg.rate = 1.0;
-    msg.pitch = 1.0;
-    speechSynthesis.speak(msg);
-    </script>
-    """, height=0)
-
-# 🧾 Chat history
-st.divider()
-for m in st.session_state["chat"]:
-    if m["role"] == "user":
-        st.markdown(f"**👤 You:** {m['content']}")
-    elif m["role"] == "assistant":
-        st.markdown(f"**💼 Consultant:** {m['content']}")
