@@ -45,8 +45,8 @@ def transcribe_audio(audio_file_data):
         sound = AudioSegment.from_file(audio_file_data)
         
         # *** NEW STEP: Boost audio volume ***
-        # Boost the audio by 10dB. This can help if the recording is too quiet.
-        sound = sound + 10
+        # Boost the audio by 15dB. This can help if the recording is too quiet.
+        sound = sound + 15
 
     except Exception as e:
         st.error(f"Error loading audio with pydub: {e}. Please try recording again.")
@@ -63,14 +63,16 @@ def transcribe_audio(audio_file_data):
         # 3. Transcribe the WAV file
         with AudioFile(wav_filename) as source:
             # *** NEW STEP: Adjust for ambient noise ***
-            # Listen for 0.5 seconds to adjust for noise
+            # Listen for 0.2 seconds to adjust for noise (shortened duration)
             try:
-                recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                recognizer.adjust_for_ambient_noise(source, duration=0.2)
             except Exception as e:
                 st.warning(f"Could not adjust for ambient noise: {e}")
                 
             audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data)
+            
+            # *** KEY CHANGE: Set language to Indian English ***
+            text = recognizer.recognize_google(audio_data, language="en-IN")
         return text
         
     except speech_recognition.UnknownValueError:
@@ -150,7 +152,7 @@ if st.button("💬 Ask Consultant"):
             if user_text:
                 st.markdown(f"**👤 You said:** {user_text}")
                 
-                with st.spinner("💼 Consultant is thinking..."):
+                with st.spinner("💼 Consultant is. thinking..."):
                     reply = get_consultant_reply(user_text)
                 
                 if reply:
