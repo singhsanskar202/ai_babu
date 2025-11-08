@@ -1,7 +1,6 @@
 import streamlit as st
 from openai import OpenAI
 import os
-import io
 import tempfile
 import whisper
 from streamlit_mic_recorder import mic_recorder
@@ -9,7 +8,7 @@ from streamlit_mic_recorder import mic_recorder
 # ------------------------------
 # SETUP
 # ------------------------------
-st.set_page_config(page_title="🧑‍💼 Friendly Business Coach", page_icon="💼", layout="centered")
+st.set_page_config(page_title="🇮🇳 Desi Business Coach", page_icon="💼", layout="centered")
 
 # Load API key
 OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
@@ -28,19 +27,23 @@ client = OpenAI(
 # CONSULTANT PERSONALITY
 # ------------------------------
 CONSULTANT_PROMPT = """
-You are a friendly and experienced small business advisor.
-You help shop owners, freelancers, and small teams solve real business problems — like sales, customer service, pricing, and marketing.
+You are a friendly Indian business coach who helps small business owners — especially from Tier 2 and Tier 3 cities.
+You speak in *Hinglish* — a mix of simple English and easy Hindi words.
+You give advice that feels local, real, and practical for Indian shopkeepers, freelancers, and small entrepreneurs.
 
-Your tone:
-- Warm, simple, and encouraging — no corporate jargon.
-- Speak like a trusted mentor, not a professor or consultant.
-- Use short sentences. Avoid frameworks or fancy terms.
-- Focus on what the user can actually do next.
+Your style:
+- Talk like a friend or mentor, not a corporate consultant.
+- Use short, clear sentences.
+- Avoid big English words or frameworks.
+- Use examples from Indian life — kirana stores, salons, tuition classes, restaurants, clothing shops, etc.
+- Focus on local, low-cost ideas (like WhatsApp promotions, word-of-mouth, small loyalty offers).
 
-Your response style:
-- Always start with empathy (“Got it”, “I understand”, “That makes sense”).
-- Then give 2–3 clear, practical steps they can take.
-- End with one short question to keep the conversation going.
+Your structure:
+1️⃣ Start with empathy (e.g., “Samjha, yeh common problem hai.”)
+2️⃣ Give 2–3 simple, actionable tips — focus on what they can do today.
+3️⃣ End with one short, friendly question to keep the chat going.
+
+Always sound warm, encouraging, and practical.
 """
 
 # ------------------------------
@@ -65,17 +68,17 @@ def transcribe_audio(audio_bytes):
         return None
 
 def get_consultant_reply(messages):
-    """Generate an empathetic, practical reply"""
+    """Generate a Hinglish, desi-style practical reply"""
     try:
         response = client.chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=messages,
-            temperature=0.6,
-            max_tokens=400,
+            temperature=0.7,
+            max_tokens=450,
         )
         reply = response.choices[0].message.content.strip()
 
-        # Simple readability polish
+        # Polish readability and add emoji touch
         reply = reply.replace("•", "• ").replace("1.", "1️⃣").replace("2.", "2️⃣").replace("3.", "3️⃣")
         return reply
     except Exception as e:
@@ -87,7 +90,7 @@ def speak_text(text):
     try:
         response = client.audio.speech.create(
             model="openai/tts-1",
-            voice="alloy",
+            voice="alloy",  # Indian-friendly English voice
             input=text
         )
         return response.read()
@@ -98,14 +101,14 @@ def speak_text(text):
 # ------------------------------
 # STREAMLIT UI
 # ------------------------------
-st.title("🧑‍💼 Friendly Business Coach")
-st.markdown("Ask about your sales, marketing, or daily business struggles — I’ll give you simple, practical advice you can act on right away.")
+st.title("🇮🇳 Desi Business Coach")
+st.markdown("Talk about your business problem — sales, customers, ya daily struggles — and I’ll give you simple, practical advice that works in India.")
 
 # Initialize chat memory
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "system", "content": CONSULTANT_PROMPT},
-        {"role": "assistant", "content": "Hey there 👋 What part of your business are you struggling with right now?"}
+        {"role": "assistant", "content": "Namaste 🙏 Main aapka business coach hoon. Batao, kis problem mein help chahiye — sales, customers, ya profit?"}
     ]
 
 # Display chat
@@ -137,22 +140,22 @@ if audio_bytes:
     else:
         audio_data = audio_bytes
 
-    with st.spinner("🎧 Listening and understanding..."):
+    with st.spinner("🎧 Sun raha hoon... samajhne ki koshish kar raha hoon..."):
         user_text = transcribe_audio(audio_data)
 
     if user_text:
         st.session_state.messages.append({"role": "user", "content": user_text})
         with st.chat_message("user"):
-            st.markdown(f"_{user_text}_")
+            st.markdown(f"🗣️ *{user_text}*")
 
         # Generate consultant reply
         with st.chat_message("assistant"):
-            with st.spinner("💼 Thinking..."):
+            with st.spinner("💼 Soch raha hoon..."):
                 reply = get_consultant_reply(st.session_state.messages)
                 st.markdown(reply)
 
             # Speak reply
-            with st.spinner("🎙️ Speaking..."):
+            with st.spinner("🎙️ Bol raha hoon..."):
                 reply_audio = speak_text(reply)
                 if reply_audio:
                     st.audio(reply_audio, format="audio/mp3")
@@ -162,4 +165,4 @@ if audio_bytes:
 
         st.rerun()
 
-st.caption("💬 Powered by OpenRouter • Your simple, voice-first business advisor.")
+st.caption("💬 Powered by OpenRouter • Made for India's small business heroes 🇮🇳")
