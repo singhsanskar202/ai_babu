@@ -3,7 +3,7 @@ from openai import OpenAI
 import os
 import io
 # NEW IMPORT for the microphone component
-from streamlit_mic_recorder import audio_recorder
+from streamlit_mic_recorder import mic_recorder # <-- FIX: Renamed 'audio_recorder' to 'mic_recorder'
 
 # ------------------------------
 # SETUP
@@ -116,7 +116,7 @@ with col2:
     # This is the new microphone button.
     # It returns the audio bytes when the user stops recording.
     # `pause_threshold=2.5` will auto-stop recording after 2.5s of silence.
-    audio_bytes = audio_recorder(
+    audio_bytes = mic_recorder( # <-- FIX: Renamed 'audio_recorder' to 'mic_recorder'
         text="🎙️ Ask Consultant",
         icon_size="2.5rem",
         pause_threshold=2.5,
