@@ -109,9 +109,10 @@ with col2:
     audio_bytes = mic_recorder(
         start_prompt="🎙️ Start Speaking",
         stop_prompt="⏹️ Stop Recording",
-        pause_threshold=2.5,
-        sample_rate=16000
+        just_once=True,
+        key="consultant_mic"
     )
+
 
 # Process new voice input
 if audio_bytes:
