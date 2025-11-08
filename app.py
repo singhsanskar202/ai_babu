@@ -128,7 +128,6 @@ with col2:
     audio_bytes = mic_recorder( # <-- FIX: Renamed 'audio_recorder' to 'mic_recorder'
         start_prompt="🎙️ Ask Consultant", # <-- FIX: Changed 'text' to 'start_prompt'
         stop_prompt="⏹️ Stop Recording",  # <-- NEW: Added a clear stop prompt
-        icon_size="2.5rem",
         pause_threshold=2.5,
         sample_rate=16_000 # Use a lower sample rate for faster transcription
     )
