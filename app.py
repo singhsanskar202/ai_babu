@@ -2,19 +2,18 @@ import streamlit as st
 from openai import OpenAI
 import os
 import io
-# NEW IMPORT for the microphone component
-from streamlit_mic_recorder import mic_recorder # <-- FIX: Renamed 'audio_recorder' to 'mic_recorder'
+from streamlit_mic_recorder import mic_recorder  # ✅ Correct import
 
 # ------------------------------
 # SETUP
 # ------------------------------
 st.set_page_config(page_title="AI Business Consultant", page_icon="💼", layout="centered")
 
-# Load API key from Streamlit secrets
+# Load API key
 OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
 if not OPENROUTER_API_KEY:
-    st.error("OPENROUTER_API_KEY not found. Please set it in your Streamlit secrets.")
+    st.error("🚨 OPENROUTER_API_KEY not found. Please set it in your Streamlit secrets.")
     st.stop()
 
 # Initialize the OpenRouter client
@@ -29,19 +28,19 @@ You are strategic, structured, and confident.
 Ask clarifying questions before making recommendations.
 Use frameworks like MECE, 3Cs, Porter's Five Forces, and 7S when relevant.
 Provide concise, actionable insights, in a natural conversational tone.
-Do not start your first message with a greeting. Go straight to the point.
+Do not start your first message with a greeting — go straight to the point.
 """
 
 # ------------------------------
-# FUNCTIONS (Unchanged)
+# FUNCTIONS
 # ------------------------------
 
 def transcribe_audio(audio_bytes):
-    """Transcribe audio using OpenRouter's Whisper API."""
+    """Transcribe speech using Whisper via OpenRouter."""
     try:
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = "input_audio.wav"
-        
+
         transcription = client.audio.transcriptions.create(
             model="openai/whisper-1",
             file=audio_file,
@@ -49,22 +48,24 @@ def transcribe_audio(audio_bytes):
         )
         return transcription.text
     except Exception as e:
-        st.error(f"Error during transcription: {e}")
+        st.error(f"❌ Transcription error: {e}")
         return None
 
+
 def get_consultant_reply(messages):
-    """Get a chat-based reply from the consultant."""
+    """Generate a business consulting response."""
     try:
         response = client.chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=messages,
             temperature=0.6,
-            max_tokens=350,
+            max_tokens=400,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        st.error(f"Error connecting to AI model: {e}")
+        st.error(f"❌ Error connecting to model: {e}")
         return None
+
 
 def speak_text(text):
     """Convert text to speech using OpenRouter's TTS API."""
@@ -76,81 +77,69 @@ def speak_text(text):
         )
         return response.read()
     except Exception as e:
-        st.error(f"Error generating speech: {e}")
+        st.error(f"❌ Text-to-speech error: {e}")
         return None
 
-# ------------------------------
-# STREAMLIT UI (Voice-Only)
-# ------------------------------
 
+# ------------------------------
+# STREAMLIT APP
+# ------------------------------
 st.title("💼 AI Business Consultant")
-st.markdown("Your AI consultant is ready. Press the mic, ask your question, and stop recording.")
+st.markdown("Speak your business challenge — your AI consultant will listen, analyze, and talk back.")
 
-# 1. Initialize session state
+# Initialize chat state
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "system", "content": CONSULTANT_PROMPT},
         {"role": "assistant", "content": "How can I help you frame your business challenge today?"}
     ]
 
-# 2. Display existing chat history (This part is crucial)
+# Display chat history
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            
-            # If there's audio, play it
             if "audio" in msg:
                 st.audio(msg["audio"], format="audio/mp3")
 
-# 3. REMOVED: st.chat_input (as requested)
-# We are now a voice-only app.
-
-# 4. NEW: Handle Voice Input with streamlit_mic_recorder
-# This will place a mic button at the bottom of the chat
+# Divider and mic control
 st.divider()
-
-# We use columns to center the button
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    # This is the new microphone button.
-    # It returns the audio bytes when the user stops recording.
-    # `pause_threshold=2.5` will auto-stop recording after 2.5s of silence.
-    audio_bytes = mic_recorder( # <-- FIX: Renamed 'audio_recorder' to 'mic_recorder'
-        start_prompt="🎙️ Ask Consultant", # <-- FIX: Changed 'text' to 'start_prompt'
-        stop_prompt="⏹️ Stop Recording",  # <-- NEW: Added a clear stop prompt
-        icon_size="2.5rem",
+    audio_bytes = mic_recorder(
+        start_prompt="🎙️ Start Speaking",
+        stop_prompt="⏹️ Stop Recording",
         pause_threshold=2.5,
-        sample_rate=16_000 # Use a lower sample rate for faster transcription
+        sample_rate=16000
     )
 
-# 5. Process the audio if we received it
+# Process new voice input
 if audio_bytes:
     with st.spinner("🎧 Transcribing your voice..."):
         user_text = transcribe_audio(audio_bytes)
 
     if user_text:
-        # Add user message to state and UI
+        # Display user message
         st.session_state.messages.append({"role": "user", "content": user_text})
         with st.chat_message("user"):
-            st.markdown(f"*{user_text}*") # Italicize transcribed text
+            st.markdown(f"_{user_text}_")
 
-        # Get AI response
+        # Get consultant’s reply
         with st.chat_message("assistant"):
             with st.spinner("💼 Consultant is thinking..."):
                 reply = get_consultant_reply(st.session_state.messages)
                 st.markdown(reply)
-            
-            with st.spinner("Generating audio..."):
-                reply_audio_bytes = speak_text(reply)
-                if reply_audio_bytes:
-                    st.audio(reply_audio_bytes, format="audio/mp3")
-                    # Store the audio in session state
-                    st.session_state.messages.append({"role": "assistant", "content": reply, "audio": reply_audio_bytes})
+
+            # Generate speech
+            with st.spinner("🎙️ Generating audio response..."):
+                reply_audio = speak_text(reply)
+                if reply_audio:
+                    st.audio(reply_audio, format="audio/mp3")
+                    st.session_state.messages.append({"role": "assistant", "content": reply, "audio": reply_audio})
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": reply})
-        
-        # Rerun to clear the mic button and show the new messages
+
+        # Refresh chat to reset mic UI
         st.rerun()
 
-st.caption("Powered by OpenRouter | A voice-first business consultant.")
+st.caption("Powered by OpenRouter • Voice-first McKinsey-style AI Consultant")
