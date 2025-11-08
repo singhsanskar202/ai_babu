@@ -1,6 +1,7 @@
 import streamlit as st
 from openai import OpenAI
 import os
+import io
 import tempfile
 import whisper
 from streamlit_mic_recorder import mic_recorder
@@ -8,12 +9,13 @@ from streamlit_mic_recorder import mic_recorder
 # ------------------------------
 # SETUP
 # ------------------------------
-st.set_page_config(page_title="🇮🇳 Desi Business Coach", page_icon="💼", layout="centered")
+st.set_page_config(page_title="🧑‍💼 Friendly Business Coach", page_icon="💼", layout="centered")
 
 # Load API key
 OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+
 if not OPENROUTER_API_KEY:
-    st.error("🚨 OPENROUTER_API_KEY not found. Please add it in Streamlit secrets.")
+    st.error("🚨 OPENROUTER_API_KEY not found. Please add it in your Streamlit secrets.")
     st.stop()
 
 # Initialize OpenRouter client
@@ -23,37 +25,34 @@ client = OpenAI(
 )
 
 # ------------------------------
-# BASE PROMPTS
+# CONSULTANT PERSONALITY
 # ------------------------------
-BASE_PROMPT = """
-You are a friendly local business coach for Indian small business owners — especially from Tier 2 and Tier 3 cities.
-You speak in {language}, with a natural, helpful tone.
-You can use Hindi or Hinglish words (like “samjha”, “thoda dhyaan do”, “yeh common problem hai”) if the user prefers Hinglish.
+CONSULTANT_PROMPT = """
+You are a friendly and experienced small business advisor.
+You help shop owners, freelancers, and small teams solve real business problems — like sales, customer service, pricing, and marketing.
 
-You help shop owners, tutors, salon owners, kirana stores, traders, and small restaurant owners with:
-sales, marketing, customer retention, pricing, and day-to-day business problems.
+Your tone:
+- Warm, simple, and encouraging — no corporate jargon.
+- Speak like a trusted mentor, not a professor or consultant.
+- Use short sentences. Avoid frameworks or fancy terms.
+- Focus on what the user can actually do next.
 
-Your advice should be:
-- Simple and realistic for Indian conditions.
-- Cost-effective (focus on WhatsApp, word-of-mouth, or simple promotions).
-- Include real-world examples (like kirana, salon, coaching class, etc.).
-- Avoid jargon or corporate words.
-
-Always follow this structure:
-1️⃣ Start with empathy (e.g. “Samjha, yeh common issue hai.”)
-2️⃣ Give 2–3 simple, actionable tips in bullet points.
-3️⃣ End with one short question to keep the conversation going.
+Your response style:
+- Always start with empathy (“Got it”, “I understand”, “That makes sense”).
+- Then give 2–3 clear, practical steps they can take.
+- End with one short question to keep the conversation going.
 """
 
 # ------------------------------
-# UTILITIES
+# FUNCTIONS
 # ------------------------------
 @st.cache_resource
 def load_whisper():
+    """Load Whisper model once (small = faster)"""
     return whisper.load_model("small")
 
 def transcribe_audio(audio_bytes):
-    """Convert speech to text using Whisper"""
+    """Transcribe using local Whisper model"""
     try:
         model = load_whisper()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
@@ -65,30 +64,30 @@ def transcribe_audio(audio_bytes):
         st.error(f"❌ Transcription error: {e}")
         return None
 
-def get_consultant_reply(messages, language):
-    """Generate response from GPT model"""
+def get_consultant_reply(messages):
+    """Generate an empathetic, practical reply"""
     try:
         response = client.chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=messages,
-            temperature=0.7,
-            max_tokens=500,
+            temperature=0.6,
+            max_tokens=400,
         )
         reply = response.choices[0].message.content.strip()
 
-        # Add emoji formatting and spacing for clarity
+        # Simple readability polish
         reply = reply.replace("•", "• ").replace("1.", "1️⃣").replace("2.", "2️⃣").replace("3.", "3️⃣")
         return reply
     except Exception as e:
-        st.error(f"❌ Model error: {e}")
+        st.error(f"❌ Error connecting to AI model: {e}")
         return None
 
-def speak_text(text, voice):
-    """Generate audio for the consultant’s reply"""
+def speak_text(text):
+    """Generate consultant’s voice reply"""
     try:
         response = client.audio.speech.create(
             model="openai/tts-1",
-            voice=voice,
+            voice="alloy",
             input=text
         )
         return response.read()
@@ -96,50 +95,20 @@ def speak_text(text, voice):
         st.error(f"❌ TTS generation error: {e}")
         return None
 
-def calculate_profit(cost_price, selling_price):
-    """Calculate margin and provide smart advice"""
-    try:
-        cost = float(cost_price)
-        sell = float(selling_price)
-        profit = sell - cost
-        margin = (profit / cost) * 100 if cost > 0 else 0
-        advice = ""
-
-        if margin < 10:
-            advice = "Your margin is quite low. Try sourcing cheaper raw material or slightly increasing price."
-        elif 10 <= margin < 25:
-            advice = "Decent margin — you can improve it with bundle offers or loyalty discounts."
-        else:
-            advice = "Great margin! Focus on retaining customers and scaling sales."
-
-        return profit, margin, advice
-    except:
-        return None, None, "Please enter valid numbers."
-
 # ------------------------------
 # STREAMLIT UI
 # ------------------------------
-st.title("🇮🇳 Desi Business Coach")
-st.markdown("Helping small Indian businesses — from kirana stores to coaching classes — grow with simple, practical advice.")
+st.title("🧑‍💼 Friendly Business Coach")
+st.markdown("Ask about your sales, marketing, or daily business struggles — I’ll give you simple, practical advice you can act on right away.")
 
-# Language and Voice Selectors
-col_lang, col_voice = st.columns(2)
-with col_lang:
-    language = st.selectbox("🗣 Choose your preferred language:", ["Hinglish", "English", "Hindi"])
-with col_voice:
-    voice = st.selectbox("🎧 Choose voice:", ["alloy", "verse", "nova"])
-
-# Generate language-specific system prompt
-system_prompt = BASE_PROMPT.format(language=language)
-
-# Initialize chat
+# Initialize chat memory
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "assistant", "content": "Namaste 🙏 Main aapka business coach hoon. Batao, kis problem mein help chahiye — sales, customers, ya profit?"}
+        {"role": "system", "content": CONSULTANT_PROMPT},
+        {"role": "assistant", "content": "Hey there 👋 What part of your business are you struggling with right now?"}
     ]
 
-# Display chat messages
+# Display chat
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
@@ -149,24 +118,26 @@ for msg in st.session_state.messages:
 
 # Microphone input
 st.divider()
-st.markdown("🎙 Speak your question or business problem:")
-audio_bytes = mic_recorder(
-    start_prompt="🎤 Start Talking",
-    stop_prompt="⏹ Stop",
-    just_once=True,
-    key="desi_mic"
-)
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    audio_bytes = mic_recorder(
+        start_prompt="🎙️ Start Talking",
+        stop_prompt="⏹️ Stop",
+        just_once=True,
+        key="business_mic"
+    )
 
 # ------------------------------
-# HANDLE AUDIO QUERY
+# HANDLE VOICE INPUT
 # ------------------------------
 if audio_bytes:
+    # handle dict or bytes
     if isinstance(audio_bytes, dict) and "bytes" in audio_bytes:
         audio_data = audio_bytes["bytes"]
     else:
         audio_data = audio_bytes
 
-    with st.spinner("🎧 Transcribing your voice..."):
+    with st.spinner("🎧 Listening and understanding..."):
         user_text = transcribe_audio(audio_data)
 
     if user_text:
@@ -174,39 +145,21 @@ if audio_bytes:
         with st.chat_message("user"):
             st.markdown(f"_{user_text}_")
 
-        # Get response
+        # Generate consultant reply
         with st.chat_message("assistant"):
             with st.spinner("💼 Thinking..."):
-                reply = get_consultant_reply(st.session_state.messages, language)
+                reply = get_consultant_reply(st.session_state.messages)
                 st.markdown(reply)
 
-            # Speak back
-            with st.spinner("🔊 Speaking..."):
-                reply_audio = speak_text(reply, voice)
+            # Speak reply
+            with st.spinner("🎙️ Speaking..."):
+                reply_audio = speak_text(reply)
                 if reply_audio:
                     st.audio(reply_audio, format="audio/mp3")
                     st.session_state.messages.append({"role": "assistant", "content": reply, "audio": reply_audio})
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": reply})
+
         st.rerun()
 
-# ------------------------------
-# PROFIT CALCULATOR
-# ------------------------------
-st.divider()
-st.subheader("🧾 Quick Profit Calculator (for Shop Owners)")
-col1, col2 = st.columns(2)
-with col1:
-    cost_price = st.text_input("Enter your cost price (₹):")
-with col2:
-    selling_price = st.text_input("Enter your selling price (₹):")
-
-if st.button("Calculate Profit 💰"):
-    profit, margin, advice = calculate_profit(cost_price, selling_price)
-    if profit is not None:
-        st.success(f"**Profit:** ₹{profit:.2f}  |  **Margin:** {margin:.2f}%")
-        st.info(advice)
-    else:
-        st.error(advice)
-
-st.caption("🚀 Made for India's small business heroes • Powered by OpenRouter")
+st.caption("💬 Powered by OpenRouter • Your simple, voice-first business advisor.")
