@@ -1,3 +1,4 @@
+whisper
 streamlit
 openai
 pyttsx3
