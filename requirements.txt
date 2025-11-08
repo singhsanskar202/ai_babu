@@ -9,3 +9,4 @@ soundfile
 speechrecognition
 pydub
 python-dotenv
+streamlit_mic_recorder
