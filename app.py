@@ -2,6 +2,8 @@ import streamlit as st
 from openai import OpenAI
 import os
 import io
+# NEW IMPORT for the microphone component
+from streamlit_mic_recorder import audio_recorder
 
 # ------------------------------
 # SETUP
@@ -16,7 +18,6 @@ if not OPENROUTER_API_KEY:
     st.stop()
 
 # Initialize the OpenRouter client
-# This one client will handle Transcription, Chat, and Speech
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
@@ -32,24 +33,19 @@ Do not start your first message with a greeting. Go straight to the point.
 """
 
 # ------------------------------
-# FUNCTIONS (Now much simpler!)
+# FUNCTIONS (Unchanged)
 # ------------------------------
 
 def transcribe_audio(audio_bytes):
-    """
-    Transcribe audio using OpenRouter's Whisper API.
-    This is much more reliable and simpler than the previous method.
-    """
+    """Transcribe audio using OpenRouter's Whisper API."""
     try:
-        # We need to pass a file-like object to the API
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "input_audio.wav" # Provide a dummy filename
+        audio_file.name = "input_audio.wav"
         
-        # Use OpenRouter for transcription (e.g., routing to Whisper)
         transcription = client.audio.transcriptions.create(
-            model="openai/whisper-1", # You can also try other whisper versions
+            model="openai/whisper-1",
             file=audio_file,
-            language="en" # You can specify language if needed
+            language="en"
         )
         return transcription.text
     except Exception as e:
@@ -57,14 +53,11 @@ def transcribe_audio(audio_bytes):
         return None
 
 def get_consultant_reply(messages):
-    """
-    Get a chat-based reply from the consultant.
-    It now receives the *entire* history for context.
-    """
+    """Get a chat-based reply from the consultant."""
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-4o-mini", # Kept your model choice
-            messages=messages, # Pass the whole history
+            model="openai/gpt-4o-mini",
+            messages=messages,
             temperature=0.6,
             max_tokens=350,
         )
@@ -74,91 +67,65 @@ def get_consultant_reply(messages):
         return None
 
 def speak_text(text):
-    """
-    Convert text to speech using OpenRouter's TTS API.
-    This returns audio bytes, which we can play with st.audio.
-    """
+    """Convert text to speech using OpenRouter's TTS API."""
     try:
-        # Use OpenRouter for Text-to-Speech
         response = client.audio.speech.create(
-            model="openai/tts-1", # A standard, high-quality model
-            voice="alloy",       # You can try different voices: alloy, echo, fable, onyx, nova, shimmer
+            model="openai/tts-1",
+            voice="alloy",
             input=text
         )
-        # Get the raw audio bytes from the response
         return response.read()
     except Exception as e:
         st.error(f"Error generating speech: {e}")
         return None
 
 # ------------------------------
-# STREAMLIT UI (Stateful Chat)
+# STREAMLIT UI (Voice-Only)
 # ------------------------------
 
 st.title("💼 AI Business Consultant")
-st.markdown("Speak your business challenge. Your AI consultant will listen, analyze, and respond.")
+st.markdown("Your AI consultant is ready. Press the mic, ask your question, and stop recording.")
 
-# 1. Initialize session state for chat history
+# 1. Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "system", "content": CONSULTANT_PROMPT},
         {"role": "assistant", "content": "How can I help you frame your business challenge today?"}
     ]
 
-# 2. Display existing chat history
+# 2. Display existing chat history (This part is crucial)
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             
-            # If there's audio associated with an assistant message, show it
+            # If there's audio, play it
             if "audio" in msg:
                 st.audio(msg["audio"], format="audio/mp3")
 
-# 3. Use st.chat_input for text-based follow-ups (Good for accessibility)
-if prompt := st.chat_input("Or, type your question..."):
-    # Add user message to state and UI
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# 3. REMOVED: st.chat_input (as requested)
+# We are now a voice-only app.
 
-    # Get AI response
-    with st.chat_message("assistant"):
-        with st.spinner("Consultant is thinking..."):
-            reply = get_consultant_reply(st.session_state.messages)
-            st.markdown(reply)
-        
-        with st.spinner("Generating audio..."):
-            audio_bytes = speak_text(reply)
-            if audio_bytes:
-                st.audio(audio_bytes, format="audio/mp3")
-                # Store the audio in session state
-                st.session_state.messages.append({"role": "assistant", "content": reply, "audio": audio_bytes})
-            else:
-                st.session_state.messages.append({"role": "assistant", "content": reply})
-
-# 4. Handle Voice Input at the bottom
+# 4. NEW: Handle Voice Input with streamlit_mic_recorder
+# This will place a mic button at the bottom of the chat
 st.divider()
-st.markdown("### <p style='text-align: center;'>Record Your Question</p>", unsafe_allow_html=True)
 
-# We use a button to start/stop recording
-# This is a common pattern for a more controlled UX
-if 'recording' not in st.session_state:
-    st.session_state.recording = False
+# We use columns to center the button
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    # This is the new microphone button.
+    # It returns the audio bytes when the user stops recording.
+    # `pause_threshold=2.5` will auto-stop recording after 2.5s of silence.
+    audio_bytes = audio_recorder(
+        text="🎙️ Ask Consultant",
+        icon_size="2.5rem",
+        pause_threshold=2.5,
+        sample_rate=16_000 # Use a lower sample rate for faster transcription
+    )
 
-# We'll use a file uploader that *can* record
-# This is a simple, built-in way to get audio
-audio_input = st.file_uploader(
-    "Click the microphone icon to record, or upload an audio file.", 
-    type=["wav", "mp3", "m4a", "ogg"], 
-    label_visibility="collapsed"
-)
-
-if audio_input and not st.session_state.get('processed_audio', False):
-    st.session_state.processed_audio = True # Flag to prevent re-running
-    
+# 5. Process the audio if we received it
+if audio_bytes:
     with st.spinner("🎧 Transcribing your voice..."):
-        audio_bytes = audio_input.read()
         user_text = transcribe_audio(audio_bytes)
 
     if user_text:
@@ -174,16 +141,15 @@ if audio_input and not st.session_state.get('processed_audio', False):
                 st.markdown(reply)
             
             with st.spinner("Generating audio..."):
-                audio_bytes = speak_text(reply)
-                if audio_bytes:
-                    st.audio(audio_bytes, format="audio/mp3")
+                reply_audio_bytes = speak_text(reply)
+                if reply_audio_bytes:
+                    st.audio(reply_audio_bytes, format="audio/mp3")
                     # Store the audio in session state
-                    st.session_state.messages.append({"role": "assistant", "content": reply, "audio": audio_bytes})
+                    st.session_state.messages.append({"role": "assistant", "content": reply, "audio": reply_audio_bytes})
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": reply})
         
-        # Rerun to clear the file uploader and show the new messages
-        st.session_state.processed_audio = False
+        # Rerun to clear the mic button and show the new messages
         st.rerun()
 
-st.caption("Powered by OpenRouter | A stateful, voice-interactive business consultant.")
+st.caption("Powered by OpenRouter | A voice-first business consultant.")
