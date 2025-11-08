@@ -117,7 +117,8 @@ with col2:
     # It returns the audio bytes when the user stops recording.
     # `pause_threshold=2.5` will auto-stop recording after 2.5s of silence.
     audio_bytes = mic_recorder( # <-- FIX: Renamed 'audio_recorder' to 'mic_recorder'
-        text="🎙️ Ask Consultant",
+        start_prompt="🎙️ Ask Consultant", # <-- FIX: Changed 'text' to 'start_prompt'
+        stop_prompt="⏹️ Stop Recording",  # <-- NEW: Added a clear stop prompt
         icon_size="2.5rem",
         pause_threshold=2.5,
         sample_rate=16_000 # Use a lower sample rate for faster transcription
