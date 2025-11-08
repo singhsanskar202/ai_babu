@@ -1,10 +1,7 @@
 import streamlit as st
 from openai import OpenAI
-import tempfile
 import os
-from pydub import AudioSegment
-from speech_recognition import Recognizer, AudioFile
-import speech_recognition
+import io
 
 # ------------------------------
 # SETUP
@@ -14,11 +11,12 @@ st.set_page_config(page_title="AI Business Consultant", page_icon="💼", layout
 # Load API key from Streamlit secrets
 OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
-# Check if API key is loaded
 if not OPENROUTER_API_KEY:
     st.error("OPENROUTER_API_KEY not found. Please set it in your Streamlit secrets.")
     st.stop()
 
+# Initialize the OpenRouter client
+# This one client will handle Transcription, Chat, and Speech
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
@@ -30,75 +28,43 @@ You are strategic, structured, and confident.
 Ask clarifying questions before making recommendations.
 Use frameworks like MECE, 3Cs, Porter's Five Forces, and 7S when relevant.
 Provide concise, actionable insights, in a natural conversational tone.
+Do not start your first message with a greeting. Go straight to the point.
 """
 
 # ------------------------------
-# FUNCTIONS
+# FUNCTIONS (Now much simpler!)
 # ------------------------------
-def transcribe_audio(audio_file_data):
-    """Convert uploaded audio data to text using SpeechRecognition."""
-    recognizer = Recognizer()
 
-    # 1. Load the audio data directly from the in-memory file-like object
+def transcribe_audio(audio_bytes):
+    """
+    Transcribe audio using OpenRouter's Whisper API.
+    This is much more reliable and simpler than the previous method.
+    """
     try:
-        # REMOVED format="ogg" to let ffmpeg auto-detect the format
-        sound = AudioSegment.from_file(audio_file_data)
+        # We need to pass a file-like object to the API
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "input_audio.wav" # Provide a dummy filename
         
-        # *** NEW STEP: Boost audio volume ***
-        # Boost the audio by 15dB. This can help if the recording is too quiet.
-        sound = sound + 15
-
+        # Use OpenRouter for transcription (e.g., routing to Whisper)
+        transcription = client.audio.transcriptions.create(
+            model="openai/whisper-1", # You can also try other whisper versions
+            file=audio_file,
+            language="en" # You can specify language if needed
+        )
+        return transcription.text
     except Exception as e:
-        st.error(f"Error loading audio with pydub: {e}. Please try recording again.")
+        st.error(f"Error during transcription: {e}")
         return None
 
-    # 2. Export this sound to a WAV format in a temp file
-    #    This is what speech_recognition.AudioFile needs.
-    wav_filename = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-            sound.export(tmp_wav.name, format="wav")
-            wav_filename = tmp_wav.name
-
-        # 3. Transcribe the WAV file
-        with AudioFile(wav_filename) as source:
-            # *** NEW STEP: Adjust for ambient noise ***
-            # Listen for 0.2 seconds to adjust for noise (shortened duration)
-            try:
-                recognizer.adjust_for_ambient_noise(source, duration=0.2)
-            except Exception as e:
-                st.warning(f"Could not adjust for ambient noise: {e}")
-                
-            audio_data = recognizer.record(source)
-            
-            # *** KEY CHANGE: Set language to Indian English ***
-            text = recognizer.recognize_google(audio_data, language="en-IN")
-        return text
-        
-    except speech_recognition.UnknownValueError:
-        st.warning("Google Speech Recognition could not understand the audio. Please try speaking more clearly.")
-        return None
-    except speech_recognition.RequestError as e:
-        st.error(f"Could not request results from Google Speech Recognition service; {e}")
-        return None
-    except Exception as e:
-        st.error(f"An error occurred during transcription: {e}")
-        return None
-    finally:
-        # 4. Clean up the temp file
-        if wav_filename and os.path.exists(wav_filename):
-            os.remove(wav_filename)
-
-
-def get_consultant_reply(user_text):
-    """Query OpenRouter model for business advice."""
+def get_consultant_reply(messages):
+    """
+    Get a chat-based reply from the consultant.
+    It now receives the *entire* history for context.
+    """
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-4o-mini", # Using a more standard, capable model
-            messages=[
-                {"role": "system", "content": CONSULTANT_PROMPT},
-                {"role": "user", "content": user_text},
-            ],
+            model="openai/gpt-4o-mini", # Kept your model choice
+            messages=messages, # Pass the whole history
             temperature=0.6,
             max_tokens=350,
         )
@@ -107,61 +73,117 @@ def get_consultant_reply(user_text):
         st.error(f"Error connecting to AI model: {e}")
         return None
 
-
 def speak_text(text):
-    """Render JavaScript-based speech synthesis."""
-    # Escape backticks, newlines, and other special characters for JS
-    safe_text = text.replace('`', '\\`').replace('\n', '\\n').replace("'", "\\'")
-    
-    js = f"""
-    <script>
-        try {{
-            const utterance = new SpeechSynthesisUtterance('{safe_text}');
-            utterance.pitch = 1;
-            utterance.rate = 1.05;
-            utterance.volume = 1;
-            
-            // Log for debugging
-            console.log("Attempting to speak: {safe_text.split('\\n')[0]}...");
-
-            // Cancel any previous speech to avoid overlap
-            speechSynthesis.cancel();
-            speechSynthesis.speak(utterance);
-        }} catch (e) {{
-            console.error("Speech synthesis error:", e);
-        }}
-    </script>
     """
-    st.components.v1.html(js, height=0, width=0)
-
+    Convert text to speech using OpenRouter's TTS API.
+    This returns audio bytes, which we can play with st.audio.
+    """
+    try:
+        # Use OpenRouter for Text-to-Speech
+        response = client.audio.speech.create(
+            model="openai/tts-1", # A standard, high-quality model
+            voice="alloy",       # You can try different voices: alloy, echo, fable, onyx, nova, shimmer
+            input=text
+        )
+        # Get the raw audio bytes from the response
+        return response.read()
+    except Exception as e:
+        st.error(f"Error generating speech: {e}")
+        return None
 
 # ------------------------------
-# STREAMLIT UI
+# STREAMLIT UI (Stateful Chat)
 # ------------------------------
+
 st.title("💼 AI Business Consultant")
-st.markdown("Speak your business challenge — your AI consultant will listen, analyze, and respond like a strategy expert.")
+st.markdown("Speak your business challenge. Your AI consultant will listen, analyze, and respond.")
 
-audio_input = st.audio_input("🎙 Speak your question clearly")
+# 1. Initialize session state for chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": CONSULTANT_PROMPT},
+        {"role": "assistant", "content": "How can I help you frame your business challenge today?"}
+    ]
 
-if st.button("💬 Ask Consultant"):
-    if audio_input is not None:
-        with st.spinner("🎧 Processing your voice..."):
-            # Pass the audio_input object directly, NOT audio_input.read()
-            user_text = transcribe_audio(audio_input) 
+# 2. Display existing chat history
+for msg in st.session_state.messages:
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+            # If there's audio associated with an assistant message, show it
+            if "audio" in msg:
+                st.audio(msg["audio"], format="audio/mp3")
 
-            if user_text:
-                st.markdown(f"**👤 You said:** {user_text}")
-                
-                with st.spinner("💼 Consultant is. thinking..."):
-                    reply = get_consultant_reply(user_text)
-                
-                if reply:
-                    st.markdown(f"**💼 Consultant:** {reply}")
-                    # Speak response aloud
-                    speak_text(reply)
+# 3. Use st.chat_input for text-based follow-ups (Good for accessibility)
+if prompt := st.chat_input("Or, type your question..."):
+    # Add user message to state and UI
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-    else:
-        st.warning("Please record your voice question first.")
+    # Get AI response
+    with st.chat_message("assistant"):
+        with st.spinner("Consultant is thinking..."):
+            reply = get_consultant_reply(st.session_state.messages)
+            st.markdown(reply)
+        
+        with st.spinner("Generating audio..."):
+            audio_bytes = speak_text(reply)
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/mp3")
+                # Store the audio in session state
+                st.session_state.messages.append({"role": "assistant", "content": reply, "audio": audio_bytes})
+            else:
+                st.session_state.messages.append({"role": "assistant", "content": reply})
 
-st.caption("Powered by OpenRouter | Designed as a voice-interactive business consultant.")
+# 4. Handle Voice Input at the bottom
+st.divider()
+st.markdown("### <p style='text-align: center;'>Record Your Question</p>", unsafe_allow_html=True)
 
+# We use a button to start/stop recording
+# This is a common pattern for a more controlled UX
+if 'recording' not in st.session_state:
+    st.session_state.recording = False
+
+# We'll use a file uploader that *can* record
+# This is a simple, built-in way to get audio
+audio_input = st.file_uploader(
+    "Click the microphone icon to record, or upload an audio file.", 
+    type=["wav", "mp3", "m4a", "ogg"], 
+    label_visibility="collapsed"
+)
+
+if audio_input and not st.session_state.get('processed_audio', False):
+    st.session_state.processed_audio = True # Flag to prevent re-running
+    
+    with st.spinner("🎧 Transcribing your voice..."):
+        audio_bytes = audio_input.read()
+        user_text = transcribe_audio(audio_bytes)
+
+    if user_text:
+        # Add user message to state and UI
+        st.session_state.messages.append({"role": "user", "content": user_text})
+        with st.chat_message("user"):
+            st.markdown(f"*{user_text}*") # Italicize transcribed text
+
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.spinner("💼 Consultant is thinking..."):
+                reply = get_consultant_reply(st.session_state.messages)
+                st.markdown(reply)
+            
+            with st.spinner("Generating audio..."):
+                audio_bytes = speak_text(reply)
+                if audio_bytes:
+                    st.audio(audio_bytes, format="audio/mp3")
+                    # Store the audio in session state
+                    st.session_state.messages.append({"role": "assistant", "content": reply, "audio": audio_bytes})
+                else:
+                    st.session_state.messages.append({"role": "assistant", "content": reply})
+        
+        # Rerun to clear the file uploader and show the new messages
+        st.session_state.processed_audio = False
+        st.rerun()
+
+st.caption("Powered by OpenRouter | A stateful, voice-interactive business consultant.")
