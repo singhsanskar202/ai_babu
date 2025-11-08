@@ -34,20 +34,25 @@ Do not start with greetings — go straight to the point.
 # ------------------------------
 # FUNCTIONS
 # ------------------------------
+import whisper
+
+@st.cache_resource
+def load_whisper():
+    return whisper.load_model("base")
+
 def transcribe_audio(audio_bytes):
-    """Transcribe voice to text using Whisper via OpenRouter."""
+    """Transcribe using local Whisper model (no API call)."""
     try:
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "input_audio.wav"
-        transcription = client.audio.transcriptions.create(
-            model="openai/whisper-1",
-            file=audio_file,
-            language="en"
-        )
-        return transcription.text
+        model = load_whisper()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(audio_bytes)
+            tmp.flush()
+            result = model.transcribe(tmp.name)
+            return result["text"].strip()
     except Exception as e:
         st.error(f"❌ Transcription error: {e}")
         return None
+
 
 
 def get_consultant_reply(messages):
