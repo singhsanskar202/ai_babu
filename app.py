@@ -43,6 +43,15 @@ Do not start with greetings — go straight to the point.
 
 # ------------------------------
 # FUNCTIONS
+
+def transcribe_audio(audio_bytes):
+    """Transcribe audio using OpenRouter's Whisper API."""
+    try:
+        # Convert bytes to a file-like object
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "recording.wav" # Whisper needs a filename
+        
+        transcription = client.audio.transcriptions.create(
             model="openai/whisper-1",
             file=audio_file,
             language="en"
