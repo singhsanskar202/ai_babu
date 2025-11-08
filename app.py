@@ -3,6 +3,9 @@ from openai import OpenAI
 import os
 import io
 from streamlit_mic_recorder import mic_recorder  # ✅ Mic input component
+import tempfile
+import whisper  # Now imports openai-whisper correctly
+
 
 # ------------------------------
 # SETUP
