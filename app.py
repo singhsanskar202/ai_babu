@@ -93,7 +93,7 @@ def get_consultant_reply(messages):
     """Generate a Hinglish, desi-style practical reply"""
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="z-ai/glm-4.5-air:free",
             messages=messages,
             temperature=0.7,
             max_tokens=450,
